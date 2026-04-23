@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Autocomplete Engine</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f3ef;--surface:#fff;--surface2:#f0ede8;--border:#e2ddd6;
+  --accent:#e8650a;--accent-light:#fff1e8;--accent-dark:#c4530a;
+  --text:#1a1714;--text-muted:#8a837a;--text-light:#b5aea8;
+  --green:#2a7a4b;--green-light:#edf7f1;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
+  --shadow-lg:0 12px 40px rgba(0,0,0,.14);--radius:14px;--radius-sm:8px;
+}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 16px 80px;}
+body::before{content:'';position:fixed;inset:0;
+  background:radial-gradient(ellipse 80% 50% at 20% 10%,rgba(232,101,10,.06) 0%,transparent 60%),
+             radial-gradient(ellipse 60% 40% at 80% 90%,rgba(42,122,75,.05) 0%,transparent 60%);
+  pointer-events:none;z-index:0;}
+.page{position:relative;z-index:1;width:100%;max-width:700px;}
+
+/* HEADER */
+header{text-align:center;margin-bottom:36px;animation:fadeDown .5s ease both;}
+.logo-pill{display:inline-flex;align-items:center;gap:6px;background:var(--accent-light);
+  border:1px solid rgba(232,101,10,.2);border-radius:99px;padding:5px 14px 5px 10px;
+  font-size:12px;font-weight:600;color:var(--accent);margin-bottom:18px;}
+h1{font-family:'Playfair Display',serif;font-size:clamp(30px,6vw,52px);font-weight:800;
+  line-height:1.1;letter-spacing:-1px;}
+h1 em{color:var(--accent);font-style:normal;}
+.tagline{margin-top:10px;color:var(--text-muted);font-size:15px;}
+
+/* SEARCH CARD */
+.search-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-lg);
+  border:1px solid var(--border);margin-bottom:20px;animation:fadeUp .5s .05s ease both;}
+.search-inner{padding:20px 20px 0;}
+.search-label{display:block;font-size:11px;font-weight:600;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;}
+
+/* ── CHANGE 1: Ghost text wrapper + overlay ── */
+.search-input-wrap{position:relative;width:100%;}
+#ghostText{
+  position:absolute;top:0;left:0;
+  padding:14px 18px;
+  font-family:'Outfit',sans-serif;font-size:18px;font-weight:500;
+  color:transparent;
+  pointer-events:none;white-space:pre;overflow:hidden;
+  /* must match input dimensions exactly */
+  width:100%;height:100%;
+  border:2px solid transparent;
+  border-radius:var(--radius-sm);
+}
+#ghostText span.ghost-match{color:transparent;}
+#ghostText span.ghost-tail{color:var(--text-light);opacity:.55;}
+/* ── END CHANGE 1 ── */
+
+#searchInput{width:100%;background:var(--surface2);border:2px solid var(--border);
+  border-radius:var(--radius-sm);font-family:'Outfit',sans-serif;font-size:18px;
+  font-weight:500;color:var(--text);padding:14px 18px;outline:none;
+  caret-color:var(--accent);transition:border-color .2s,box-shadow .2s,background .2s;
+  position:relative;background:transparent;}
+#searchInput:focus{border-color:var(--accent);background:transparent;
+  box-shadow:0 0 0 4px rgba(232,101,10,.10);}
+#searchInput::placeholder{color:var(--text-light);font-weight:400;}
+
+/* Make sure the wrapper itself has the surface background so input bg:transparent works */
+.search-input-wrap{background:var(--surface2);border-radius:var(--radius-sm);}
+.search-input-wrap:focus-within{background:var(--surface);}
+
+.input-help{padding:10px 4px 18px;font-size:12px;color:var(--text-light);
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;}
+.input-help kbd{background:var(--surface2);border:1px solid var(--border);border-radius:4px;
+  padding:1px 6px;font-family:inherit;font-size:11px;color:var(--text-muted);}
+
+/* DROPDOWN */
+.dropdown-wrap{margin:0 20px;}
+.dropdown{background:var(--surface);border:1.5px solid var(--accent);border-top:none;
+  border-radius:0 0 var(--radius-sm) var(--radius-sm);overflow:hidden;max-height:0;
+  transition:max-height .22s ease;box-shadow:var(--shadow-md);}
+.dropdown.open{max-height:420px;}
+.dropdown-header{padding:8px 16px;font-size:10px;font-weight:700;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--text-light);background:var(--surface2);
+  border-bottom:1px solid var(--border);display:flex;justify-content:space-between;}
+.suggestion-item{display:flex;align-items:center;padding:13px 16px;cursor:pointer;
+  border-bottom:1px solid var(--border);transition:background .12s;gap:12px;
+  animation:slideIn .12s ease both;}
+.suggestion-item:last-child{border-bottom:none;}
+.suggestion-item:hover{background:var(--accent-light);}
+.suggestion-item:hover .suggestion-arrow{opacity:1;}
+.suggestion-item:hover .rank-num{background:var(--accent);border-color:var(--accent);color:#fff;}
+.rank-num{width:26px;height:26px;border-radius:50%;background:var(--surface2);
+  border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;color:var(--text-muted);flex-shrink:0;
+  transition:background .12s,border-color .12s,color .12s;}
+.suggestion-body{flex:1;min-width:0;}
+.suggestion-text{font-size:15px;font-weight:500;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.suggestion-text mark{background:none;color:var(--accent);font-weight:700;}
+.suggestion-sub{font-size:11px;color:var(--text-light);margin-top:2px;}
+.popularity-bar-wrap{width:70px;flex-shrink:0;text-align:right;}
+.popularity-bar-bg{height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin-bottom:3px;}
+.popularity-bar-fill{height:100%;background:var(--accent);border-radius:99px;}
+.count-label{font-size:10px;color:var(--text-muted);font-weight:600;}
+.suggestion-arrow{font-size:14px;color:var(--accent);opacity:0;transition:opacity .12s;flex-shrink:0;}
+.no-result{padding:20px 16px;text-align:center;color:var(--text-muted);font-size:14px;line-height:1.6;}
+.no-result strong{color:var(--text);}
+.auto-add-note{display:inline-block;margin-top:8px;background:var(--green-light);
+  border:1px solid rgba(42,122,75,.2);border-radius:6px;padding:6px 12px;
+  font-size:12px;color:var(--green);font-weight:500;}
+
+/* STATUS */
+.status-bar{margin:0 20px;height:0;overflow:hidden;transition:height .2s ease;}
+.status-bar.visible{height:44px;}
+.status-pill{display:flex;align-items:center;gap:8px;background:var(--green-light);
+  border:1px solid rgba(42,122,75,.2);border-radius:0 0 var(--radius-sm) var(--radius-sm);
+  padding:10px 16px;font-size:13px;font-weight:500;color:var(--green);}
+.status-pill.warn{background:var(--accent-light);border-color:rgba(232,101,10,.2);color:var(--accent-dark);}
+
+/* GHOST HINT BADGE */
+.ghost-hint{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;color:var(--text-light);
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:99px;padding:3px 10px;
+  transition:opacity .2s;
+  opacity:0;pointer-events:none;
+}
+.ghost-hint.visible{opacity:1;}
+.ghost-hint kbd{
+  background:var(--surface);border:1px solid var(--border);border-radius:4px;
+  padding:1px 5px;font-size:10px;color:var(--text-muted);
+}
+
+/* PANEL */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow-sm);overflow:hidden;animation:fadeUp .5s .15s ease both;}
+.panel-header{padding:14px 20px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;background:var(--surface2);}
+.panel-title{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+  color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.panel-badge{background:var(--accent);color:#fff;border-radius:99px;
+  font-size:10px;font-weight:700;padding:1px 8px;}
+.tabs{display:flex;gap:4px;}
+.tab-btn{background:none;border:1.5px solid var(--border);border-radius:6px;
+  padding:4px 12px;font-family:'Outfit',sans-serif;font-size:11px;font-weight:600;
+  color:var(--text-muted);cursor:pointer;transition:all .15s;}
+.tab-btn.active,.tab-btn:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
+.catalogue-list{max-height:320px;overflow-y:auto;}
+.catalogue-list::-webkit-scrollbar{width:4px;}
+.catalogue-list::-webkit-scrollbar-track{background:var(--surface2);}
+.catalogue-list::-webkit-scrollbar-thumb{background:var(--accent);border-radius:99px;}
+.cat-row{display:flex;align-items:center;padding:10px 20px;border-bottom:1px solid var(--border);
+  gap:12px;transition:background .12s;}
+.cat-row:last-child{border-bottom:none;}
+.cat-row:hover{background:var(--surface2);}
+.cat-rank{font-size:11px;font-weight:700;color:var(--text-light);width:20px;text-align:center;flex-shrink:0;}
+.cat-rank.top3{color:var(--accent);}
+.cat-phrase{flex:1;font-size:13px;font-weight:500;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cat-bar-wrap{width:80px;flex-shrink:0;}
+.cat-bar-bg{height:3px;background:var(--border);border-radius:99px;overflow:hidden;}
+.cat-bar-fill{height:100%;background:var(--accent);border-radius:99px;transition:width .4s ease;}
+.cat-count{font-size:10px;color:var(--text-muted);font-weight:600;text-align:right;margin-top:2px;}
+.log-list{max-height:240px;overflow-y:auto;padding:8px 0;}
+.log-list::-webkit-scrollbar{width:4px;}
+.log-list::-webkit-scrollbar-thumb{background:var(--accent);border-radius:99px;}
+.log-entry{display:flex;align-items:flex-start;gap:10px;padding:7px 20px;
+  font-size:12px;animation:slideIn .15s ease both;}
+.log-icon{font-size:14px;flex-shrink:0;margin-top:1px;}
+.log-text{color:var(--text-muted);line-height:1.5;}
+.log-text strong{color:var(--text);font-weight:600;}
+.log-time{color:var(--text-light);font-size:10px;margin-left:auto;flex-shrink:0;}
+.log-empty{padding:24px;text-align:center;color:var(--text-light);font-size:13px;}
+
+@keyframes fadeDown{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:480px){.popularity-bar-wrap{display:none}h1{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="logo-pill"><span>🔍</span> Smart Search</div>
+    <h1>Auto<em>Complete</em><br/>Engine</h1>
+    <p class="tagline">Type anything — top 5 suggestions appear instantly, ranked by popularity.</p>
+  </header>
+
+  <div class="search-card">
+    <div class="search-inner">
+      <label class="search-label" for="searchInput">Start typing a phrase</label>
+
+      <!-- ── CHANGE 2: Wrap input in .search-input-wrap, add #ghostText overlay ── -->
+      <div class="search-input-wrap">
+        <div id="ghostText" aria-hidden="true"></div>
+        <input type="text" id="searchInput"
+          placeholder="e.g.  machine,  python,  data,  react..."
+          autocomplete="off" spellcheck="false"/>
+      </div>
+      <!-- ── END CHANGE 2 ── -->
+
+      <div class="input-help">
+        <span>👆 Click a suggestion to select it</span>
+        <span>⌨️ <kbd>Enter</kbd> saves exactly what you typed</span>
+        <span>👻 <kbd>Tab</kbd> previews ghost · <kbd>Tab</kbd> again or <kbd>→</kbd> accepts it</span>
+        <span class="ghost-hint" id="ghostHint">Ghost preview on — <kbd>Tab</kbd> or <kbd>→</kbd> to accept · <kbd>Esc</kbd> to dismiss</span>
+      </div>
+    </div>
+    <div class="dropdown-wrap">
+      <div class="dropdown" id="dropdown"></div>
+    </div>
+    <div class="status-bar" id="statusBar">
+      <div class="status-pill" id="statusPill"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        📚 Phrase Catalogue
+        <span class="panel-badge" id="catalogueBadge">40</span>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" id="tabTop" onclick="switchTab('top')">Top Phrases</button>
+        <button class="tab-btn"        id="tabLog" onclick="switchTab('log')">Activity Log</button>
+      </div>
+    </div>
+    <div id="viewTop"><div class="catalogue-list" id="catalogueList"></div></div>
+    <div id="viewLog" style="display:none">
+      <div class="log-list" id="logList">
+        <div class="log-empty">No activity yet — start typing!</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────
+// TrieNode: one character-room in the tree
+// ─────────────────────────────────────────────────────────────────────
+class TrieNode {
+  constructor() {
+    this.children       = {};
+    this.isEndOfPhrase  = false;
+    this.originalPhrase = null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Trie: prefix tree
+// insert  O(m)   — one node per character
+// search  O(m+k) — walk prefix, then DFS collect all matches
+// ─────────────────────────────────────────────────────────────────────
+class Trie {
+  constructor() { this.root = new TrieNode(); }
+
+  insert(phrase) {
+    let node = this.root;
+    for (const ch of phrase.toLowerCase()) {
+      if (!node.children[ch]) node.children[ch] = new TrieNode();
+      node = node.children[ch];
+    }
+    node.isEndOfPhrase  = true;
+    node.originalPhrase = phrase;
+  }
+
+  searchByPrefix(prefix) {
+    let node = this.root;
+    for (const ch of prefix.toLowerCase()) {
+      if (!node.children[ch]) return [];
+      node = node.children[ch];
+    }
+    const results = [];
+    this._depthFirstCollect(node, results);
+    return results;
+  }
+
+  _depthFirstCollect(node, results) {
+    if (node.isEndOfPhrase) results.push(node.originalPhrase);
+    for (const child of Object.values(node.children))
+      this._depthFirstCollect(child, results);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Catalogue: HashMap — key=lowercase phrase, value={phrase, count}
+// ─────────────────────────────────────────────────────────────────────
+class Catalogue {
+  constructor() { this._store = Object.create(null); }
+
+  add(phrase, count=1) {
+    this._store[phrase.toLowerCase().trim()] = { phrase: phrase.trim(), count };
+  }
+  exists(phrase)     { return phrase.toLowerCase().trim() in this._store; }
+  getCount(phrase)   { const r=this._store[phrase.toLowerCase().trim()]; return r?r.count:0; }
+  getDisplay(phrase) { const r=this._store[phrase.toLowerCase().trim()]; return r?r.phrase:phrase; }
+
+  incrementCount(phrase) {
+    const key = phrase.toLowerCase().trim();
+    if (this._store[key]) { this._store[key].count++; return this._store[key].count; }
+    return 0;
+  }
+
+  allSorted() {
+    return Object.values(this._store)
+      .sort((a,b) => b.count!==a.count ? b.count-a.count : a.phrase.localeCompare(b.phrase));
+  }
+
+  get size() { return Object.keys(this._store).length; }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// AutocompleteEngine: wires Trie + Catalogue, enforces all 4 rules
+// ─────────────────────────────────────────────────────────────────────
+const TOP_N = 5;
+
+const PRELOADED_PHRASES = [
+  ["artificial intelligence trends",    980],
+  ["artificial neural networks",         420],
+  ["algorithm time complexity",          310],
+  ["apple macbook pro review",           275],
+  ["autocomplete engine design",         190],
+  ["best python libraries 2024",         870],
+  ["binary search tree tutorial",        340],
+  ["blockchain technology overview",     290],
+  ["best machine learning courses",      760],
+  ["cloud computing services",           650],
+  ["css grid layout tutorial",           480],
+  ["competitive programming tips",       220],
+  ["data structures and algorithms",    1200],
+  ["deep learning with tensorflow",      540],
+  ["docker container tutorial",          410],
+  ["dynamic programming problems",       330],
+  ["git branching strategies",           560],
+  ["graph traversal algorithms",         300],
+  ["how to learn javascript",            730],
+  ["hash map vs hash set",               195],
+  ["javascript async await",             690],
+  ["java spring boot tutorial",          385],
+  ["kubernetes deployment guide",        450],
+  ["linear regression explained",        260],
+  ["machine learning roadmap",           810],
+  ["microservices architecture",         500],
+  ["natural language processing",        620],
+  ["nodejs express rest api",            470],
+  ["object oriented programming",        380],
+  ["open source contribution guide",     215],
+  ["python list comprehension",          710],
+  ["prefix tree trie implementation",    175],
+  ["react hooks tutorial",               660],
+  ["redis caching strategies",           290],
+  ["sql joins explained",                590],
+  ["system design interview",            920],
+  ["sorting algorithms comparison",      340],
+  ["typescript generics guide",          255],
+  ["trie vs hash map performance",       140],
+  ["vector databases explained",         310],
+];
+
+class AutocompleteEngine {
+  constructor() {
+    this._trie      = new Trie();
+    this._catalogue = new Catalogue();
+    for (const [phrase, count] of PRELOADED_PHRASES) {
+      this._catalogue.add(phrase, count);
+      this._trie.insert(phrase);
+    }
+  }
+
+  getSuggestions(prefix) {
+    prefix = prefix.trim();
+    if (!prefix) return [];
+    const raw = this._trie.searchByPrefix(prefix);
+    if (!raw.length) return [];
+    raw.sort((a, b) => {
+      const diff = this._catalogue.getCount(b) - this._catalogue.getCount(a);
+      return diff !== 0 ? diff : a.toLowerCase().localeCompare(b.toLowerCase());
+    });
+    return raw.slice(0, TOP_N).map(p => ({
+      phrase: this._catalogue.getDisplay(p),
+      count:  this._catalogue.getCount(p)
+    }));
+  }
+
+  selectSuggestion(phrase) {
+    return this._catalogue.incrementCount(phrase);
+  }
+
+  submitPhrase(phrase) {
+    phrase = phrase.trim();
+    if (!phrase) return null;
+    if (!this._catalogue.exists(phrase)) {
+      this._catalogue.add(phrase, 1);
+      this._trie.insert(phrase);
+      return { status: 'added', count: 1 };
+    }
+    return { status: 'incremented', count: this._catalogue.incrementCount(phrase) };
+  }
+
+  get catalogueSize() { return this._catalogue.size; }
+  getAllSorted()       { return this._catalogue.allSorted(); }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// DOM REFERENCES
+// ─────────────────────────────────────────────────────────────────────
+const engine        = new AutocompleteEngine();
+const searchInput   = document.getElementById('searchInput');
+const dropdown      = document.getElementById('dropdown');
+const statusBar     = document.getElementById('statusBar');
+const statusPill    = document.getElementById('statusPill');
+const catalogueList = document.getElementById('catalogueList');
+const logList       = document.getElementById('logList');
+const catBadge      = document.getElementById('catalogueBadge');
+
+// ── ghost DOM refs ──
+const ghostText  = document.getElementById('ghostText');
+const ghostHint  = document.getElementById('ghostHint');
+
+let currentSuggestions = [];
+let statusTimer        = null;
+
+// ─────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function highlightPrefix(phrase, prefix) {
+  const idx = phrase.toLowerCase().indexOf(prefix.toLowerCase());
+  if (idx===-1) return esc(phrase);
+  return esc(phrase.slice(0,idx))
+       + '<mark>'+esc(phrase.slice(idx,idx+prefix.length))+'</mark>'
+       + esc(phrase.slice(idx+prefix.length));
+}
+
+
+
+let ghostArmed = false;
+
+function setGhostText(prefix, topSuggestion) {
+  // Never show ghost unless the user has opted in by pressing Tab
+  if (!ghostArmed) { clearGhostText(); return; }
+  if (!prefix || !topSuggestion) { clearGhostText(); return; }
+  const phrase = topSuggestion.phrase;
+  if (!phrase.toLowerCase().startsWith(prefix.toLowerCase())) {
+    clearGhostText(); return;
+  }
+  const matchPart = phrase.slice(0, prefix.length);
+  const tailPart  = phrase.slice(prefix.length);
+  ghostText.innerHTML =
+    `<span class="ghost-match">${esc(matchPart)}</span>` +
+    `<span class="ghost-tail">${esc(tailPart)}</span>`;
+  ghostHint.classList.add('visible');
+}
+
+function clearGhostText() {
+  ghostText.innerHTML = '';
+  ghostHint.classList.remove('visible');
+}
+
+function acceptGhost() {
+  if (!currentSuggestions.length) return;
+  const top = currentSuggestions[0];
+  searchInput.value = top.phrase;
+  ghostArmed = false;
+  clearGhostText();
+  renderDropdown(top.phrase);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// DROPDOWN
+// ─────────────────────────────────────────────────────────────────────
+function renderDropdown(prefix) {
+  currentSuggestions = engine.getSuggestions(prefix);
+
+  if (!prefix.trim()) { closeDropdown(); return; }
+
+  dropdown.classList.add('open');
+
+  if (currentSuggestions.length === 0) {
+    
+    clearGhostText();
+   
+    dropdown.innerHTML = `
+      <div class="no-result">
+        No matches for <strong>"${esc(prefix)}"</strong><br/>
+        <span class="auto-add-note">✓ Press Enter — it will be added automatically</span>
+      </div>`;
+    return;
+  }
+
+  
+  setGhostText(prefix, currentSuggestions[0]);
+
+
+  const maxCount = Math.max(...currentSuggestions.map(s=>s.count));
+  dropdown.innerHTML =
+    `<div class="dropdown-header">
+       <span>✦ Top ${currentSuggestions.length} suggestions</span>
+       <span>click to select · popularity updates live</span>
+     </div>`
+    + currentSuggestions.map((s,i)=>{
+        const pct  = Math.round(s.count/maxCount*100);
+        const freq = s.count>=700?'Very popular':s.count>=300?'Popular':s.count>=100?'Searched':'New';
+        return `<div class="suggestion-item" data-index="${i}">
+          <div class="rank-num">${i+1}</div>
+          <div class="suggestion-body">
+            <div class="suggestion-text">${highlightPrefix(s.phrase,prefix)}</div>
+            <div class="suggestion-sub">${freq} · ${s.count.toLocaleString()} searches</div>
+          </div>
+          <div class="popularity-bar-wrap">
+            <div class="popularity-bar-bg"><div class="popularity-bar-fill" style="width:${pct}%"></div></div>
+            <div class="count-label">${s.count.toLocaleString()}</div>
+          </div>
+          <div class="suggestion-arrow">→</div>
+        </div>`;
+      }).join('');
+
+  dropdown.querySelectorAll('.suggestion-item').forEach(el=>{
+    el.addEventListener('mousedown', e=>{ e.preventDefault(); handleSelect(+el.dataset.index); });
+  });
+}
+
+function closeDropdown() {
+  dropdown.classList.remove('open');
+  dropdown.innerHTML = '';
+  ghostArmed = false;
+  clearGhostText();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SELECTION & SUBMISSION
+// ─────────────────────────────────────────────────────────────────────
+function handleSelect(index) {
+  const item = currentSuggestions[index];
+  if (!item) return;
+  const old = item.count;
+  const nw  = engine.selectSuggestion(item.phrase);
+  searchInput.value = item.phrase;
+  closeDropdown(); 
+  renderCatalogue();
+  addLog('select',`Selected <strong>"${esc(item.phrase)}"</strong> — count <strong>${old} → ${nw}</strong>`);
+  showStatus(`✓  Selected "${item.phrase}" — count is now ${nw}`, 'ok');
+  searchInput.select();
+}
+
+function handleEnter() {
+  const val = searchInput.value.trim();
+  if (!val) return;
+
+  const result = engine.submitPhrase(val);
+  if (!result) return;
+  closeDropdown();
+  renderCatalogue();
+  if (result.status === 'added') {
+    addLog('add', `Auto-added new phrase <strong>"${esc(val)}"</strong> with count 1`);
+    showStatus(`✓  New phrase added: "${val}"`, 'ok');
+  } else {
+    addLog('select', `<strong>"${esc(val)}"</strong> already exists — count → <strong>${result.count}</strong>`);
+    showStatus(`↑  "${val}" already in catalogue. Count → ${result.count}`, 'warn');
+  }
+  searchInput.value = '';
+  currentSuggestions = [];
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// STATUS & LOG
+// ─────────────────────────────────────────────────────────────────────
+function showStatus(msg, type='ok') {
+  statusPill.textContent = msg;
+  statusPill.className   = `status-pill${type==='warn'?' warn':''}`;
+  statusBar.classList.add('visible');
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(()=>statusBar.classList.remove('visible'), 3000);
+}
+
+function addLog(type, html) {
+  const empty = logList.querySelector('.log-empty');
+  if (empty) empty.remove();
+  const icon = type==='select'?'🔖':type==='add'?'✅':'🔍';
+  const now  = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const el   = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-icon">${icon}</span><span class="log-text">${html}</span><span class="log-time">${now}</span>`;
+  logList.prepend(el);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CATALOGUE RENDER
+// ─────────────────────────────────────────────────────────────────────
+function renderCatalogue() {
+  const all = engine.getAllSorted();
+  const max = all[0]?.count||1;
+  catBadge.textContent = all.length;
+  catalogueList.innerHTML = all.map((item,i)=>{
+    const pct = Math.round(item.count/max*100);
+    return `<div class="cat-row">
+      <div class="cat-rank${i<3?' top3':''}">${i+1}</div>
+      <div class="cat-phrase" title="${esc(item.phrase)}">${esc(item.phrase)}</div>
+      <div class="cat-bar-wrap">
+        <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${pct}%"></div></div>
+        <div class="cat-count">${item.count.toLocaleString()}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function switchTab(tab) {
+  document.getElementById('viewTop').style.display = tab==='top'?'':'none';
+  document.getElementById('viewLog').style.display = tab==='log'?'':'none';
+  document.getElementById('tabTop').className = `tab-btn${tab==='top'?' active':''}`;
+  document.getElementById('tabLog').className = `tab-btn${tab==='log'?' active':''}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// EVENT LISTENERS
+// ─────────────────────────────────────────────────────────────────────
+searchInput.addEventListener('input', ()=>{
+  ghostArmed = false;  
+  clearGhostText();
+  renderDropdown(searchInput.value);
+});
+
+searchInput.addEventListener('keydown', e=>{
+  if (e.key === 'Tab') {
+    if (!currentSuggestions.length) return; 
+    e.preventDefault();
+    if (!ghostArmed) {
+      
+      ghostArmed = true;
+      setGhostText(searchInput.value, currentSuggestions[0]);
+    } else {
+      
+      acceptGhost();
+    }
+    return;
+  }
+  if (e.key === 'ArrowRight') {
+   
+    if (ghostArmed && currentSuggestions.length &&
+        searchInput.selectionStart === searchInput.value.length) {
+      e.preventDefault();
+      acceptGhost();
+      return;
+    }
+  }
+  if (e.key === 'Escape') {
+    if (ghostArmed) { ghostArmed = false; clearGhostText(); }
+    else { closeDropdown(); }
+    return;
+  }
+  if (e.key === 'Enter') { e.preventDefault(); handleEnter(); }
+});
+
+document.addEventListener('mousedown', e=>{
+  if (!e.target.closest('.search-card')) closeDropdown();
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────
+renderCatalogue();
+searchInput.focus();
+</script>
+</body>
+</html>
