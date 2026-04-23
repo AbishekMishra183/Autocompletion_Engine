@@ -1,4 +1,3 @@
-dd
 
 **Author:** Abhishek Mishra
 **Language:** Vanilla JavaScript (ES6+) · HTML5 · CSS3
